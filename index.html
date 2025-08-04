@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ProLub Álava</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Estilos para el overlay del modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        .modal-content {
+            background-color: white;
+            padding: 2rem;
+            border-radius: 0.75rem; /* rounded-xl de Tailwind */
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); /* shadow-2xl de Tailwind */
+            position: relative;
+            width: 90%;
+            max-width: 400px;
+        }
+        .modal-close-button {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: none;
+            border: none;
+            font-size: 1.5rem;
+            cursor: pointer;
+            color: #4a5568; /* color gris */
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.0.0/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.0.0/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, doc, deleteDoc, updateDoc, getDocs, setDoc } from "https://www.gstatic.com/firebasejs/10.0.0/firebase-firestore.js";
+
+        // =====================================================================================
+        // IMPORTANTE: Configuración de Firebase
+        // =====================================================================================
+        window.firebaseConfig = {
+            apiKey: "AIzaSyBxunJ6z17oySYYhKi-wUBSD-S_Ru2Pt4Y",
+            authDomain: "prolub-alava.firebaseapp.com",
+            projectId: "prolub-alava",
+            storageBucket: "prolub-alava.firebasestorage.app",
+            messagingSenderId: "784788170609",
+            appId: "1:784788170609:web:fff37112598c06f88538d0",
+            measurementId: "G-TGZM2SBGT1"
+        };
+        
+        window.initialAuthToken = null;
+        window.appId = window.firebaseConfig.projectId;
+        window.WHATSAPP_NUMBER = '5930962210284';
+        window.ADMIN_PASSWORD = '9999';
+
+        let app, db, auth;
+        try {
+            app = initializeApp(window.firebaseConfig);
+            db = getFirestore(app);
+            auth = getAuth(app);
+            
+            window.app = app;
+            window.db = db;
+            window.auth = auth;
+
+        } catch (error) {
+            console.error("Error al inicializar Firebase. Asegúrate de que tu firebaseConfig es correcta.", error);
+        }
+
+        async function handleInitialAuth() {
+            if (!auth) {
+                console.error("Firebase Auth no está disponible. No se puede realizar la autenticación.");
+                return;
+            }
+            if (window.initialAuthToken) {
+                try {
+                    await signInWithCustomToken(auth, window.initialAuthToken);
+                    console.log("Sesión iniciada con token personalizado.");
+                } catch (error) {
+                    console.error("Error al iniciar sesión con token personalizado:", error);
+                    console.log("Intentando inicio de sesión anónimo como respaldo.");
+                    await signInAnonymously(auth);
+                }
+            } else {
+                try {
+                    await signInAnonymously(auth);
+                    console.log("Sesión iniciada de forma anónima.");
+                } catch (error) {
+                    console.error("Error al iniciar sesión de forma anónima:", error);
+                    console.error("Asegúrate de que la autenticación anónima está habilitada en tu proyecto de Firebase.");
+                }
+            }
+        }
+        handleInitialAuth();
+        
+        window.initializeApp = initializeApp;
+        window.getAuth = getAuth;
+        window.signInAnonymously = signInAnonymously;
+        window.signInWithCustomToken = signInWithCustomToken;
+        window.onAuthStateChanged = onAuthStateChanged;
+        window.getFirestore = getFirestore;
+        window.collection = collection;
+        window.addDoc = addDoc;
+        window.onSnapshot = onSnapshot;
+        window.query = query;
+        window.doc = doc;
+        window.deleteDoc = deleteDoc;
+        window.updateDoc = updateDoc;
+        window.getDocs = getDocs;
+        window.setDoc = setDoc;
+    </script>
+
+    <script type="text/babel">
+        const App = () => {
+            const { db, auth, appId, WHATSAPP_NUMBER, ADMIN_PASSWORD } = window;
+            const [userId, setUserId] = React.useState('');
+            const [isAuthReady, setIsAuthReady] = React.useState(false);
+            const [products, setProducts] = React.useState([]);
+            const [cart, setCart] = React.useState([]);
+            const [currentOrderId, setCurrentOrderId] = React.useState(null);
+            const [productQuantities, setProductQuantities] = React.useState({});
+
+            const [adminPasswordInput, setAdminPasswordInput] = React.useState('');
+            const [isLoggedInAsAdmin, setIsLoggedInAsAdmin] = React.useState(false);
+            const [adminLoginError, setAdminLoginError] = React.useState('');
+            const [showAdminLoginModal, setShowAdminLoginModal] = React.useState(false);
+
+            const [productName, setProductName] = React.useState('');
+            const [productDescription, setProductDescription] = React.useState('');
+            const [productPrice, setProductPrice] = React.useState('');
+            const [productImageUrl, setProductImageUrl] = React.useState('');
+            const [productIsVisible, setProductIsVisible] = React.useState(true);
+            const [editingProduct, setEditingProduct] = React.useState(null);
+
+            const generateShortOrderId = () => {
+                return Math.floor(Math.random() * 9000) + 1000;
+            };
+
+            React.useEffect(() => {
+                if (!auth) {
+                    console.warn("Auth object is not available yet for onAuthStateChanged.");
+                    return;
+                }
+                const unsubscribe = window.onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        setUserId(user.uid);
+                        setIsAuthReady(true);
+                        console.log("Estado de autenticación cambiado: Usuario autenticado con UID:", user.uid);
+                    } else {
+                        setUserId('');
+                        setIsAuthReady(false);
+                        console.log("Estado de autenticación cambiado: Usuario no autenticado.");
+                    }
+                });
+                return () => unsubscribe();
+            }, [auth]);
+
+            React.useEffect(() => {
+                if (!db || !isAuthReady) {
+                    console.log("Base de datos no lista o autenticación no preparada para obtener productos.");
+                    return;
+                }
+                const productsCollectionRef = window.collection(db, `artifacts/${appId}/public/data/products`);
+                const q = window.query(productsCollectionRef);
+                const unsubscribe = window.onSnapshot(q, (snapshot) => {
+                    const fetchedProducts = snapshot.docs.map(doc => ({
+                        id: doc.id,
+                        ...doc.data()
+                    }));
+                    setProducts(fetchedProducts);
+                    console.log("Productos obtenidos de Firestore:", fetchedProducts);
+                }, (error) => {
+                    console.error("Error al obtener los productos de Firestore:", error);
+                });
+                return () => unsubscribe();
+            }, [db, isAuthReady, appId]);
+
+            const handleAdminLogin = () => {
+                if (adminPasswordInput === ADMIN_PASSWORD) {
+                    setIsLoggedInAsAdmin(true);
+                    setAdminLoginError('');
+                    setShowAdminLoginModal(false);
+                    console.log("Inicio de sesión de administrador exitoso.");
+                } else {
+                    setAdminLoginError('Contraseña incorrecta.');
+                    console.warn("Intento de inicio de sesión de administrador fallido.");
+                }
+                setAdminPasswordInput('');
+            };
+
+            const handleAdminLogout = () => {
+                setIsLoggedInAsAdmin(false);
+                setAdminLoginError('');
+                setShowAdminLoginModal(false);
+                console.log("Sesión de administrador cerrada.");
+            };
+
+            const addOrUpdateProduct = async () => {
+                if (!productName || !productDescription || !productPrice || !productImageUrl) {
+                    alert('Por favor, rellena todos los campos del producto.');
+                    return;
+                }
+                const parsedPrice = parseFloat(productPrice);
+                if (isNaN(parsedPrice) || parsedPrice <= 0) {
+                    alert('Por favor, introduce un precio válido y mayor que cero.');
+                    return;
+                }
+                if (db && isLoggedInAsAdmin) {
+                    try {
+                        const productsCollectionRef = window.collection(db, `artifacts/${appId}/public/data/products`);
+                        if (editingProduct) {
+                            const productDocRef = window.doc(db, `artifacts/${appId}/public/data/products`, editingProduct.id);
+                            await window.updateDoc(productDocRef, {
+                                name: productName,
+                                description: productDescription,
+                                price: parsedPrice,
+                                imageUrl: productImageUrl,
+                                isVisible: productIsVisible,
+                                updatedAt: Date.now()
+                            });
+                            setEditingProduct(null);
+                            console.log("Producto actualizado con éxito:", { name: productName, price: parsedPrice, isVisible: productIsVisible });
+                        } else {
+                            await window.addDoc(productsCollectionRef, {
+                                name: productName,
+                                description: productDescription,
+                                price: parsedPrice,
+                                imageUrl: productImageUrl,
+                                isVisible: true,
+                                createdAt: Date.now()
+                            });
+                            console.log("Producto añadido con éxito:", { name: productName, price: parsedPrice, isVisible: true });
+                        }
+                        setProductName('');
+                        setProductDescription('');
+                        setProductPrice('');
+                        setProductImageUrl('');
+                        setProductIsVisible(true);
+                    } catch (e) {
+                        console.error("Error al añadir/actualizar documento en Firestore: ", e);
+                        alert(`Error al guardar el producto: ${e.message}. Revisa la consola para más detalles y tus reglas de seguridad de Firestore.`);
+                    }
+                } else {
+                    alert('No tienes permisos para realizar esta acción o la base de datos no está lista.');
+                    console.warn("Intento fallido de añadir/actualizar producto: No hay permisos de administrador o DB no lista.");
+                }
+            };
+
+            const startEditProduct = (product) => {
+                if (isLoggedInAsAdmin) {
+                    setEditingProduct(product);
+                    setProductName(product.name);
+                    setProductDescription(product.description);
+                    setProductPrice(product.price.toString());
+                    setProductImageUrl(product.imageUrl);
+                    setProductIsVisible(product.isVisible !== undefined ? product.isVisible : true);
+                } else {
+                    alert('No tienes permisos para realizar esta acción.');
+                }
+            };
+
+            const toggleProductVisibility = async (productId, currentVisibility) => {
+                if (db && isLoggedInAsAdmin) {
+                    try {
+                        const productDocRef = window.doc(db, `artifacts/${appId}/public/data/products`, productId);
+                        await window.updateDoc(productDocRef, {
+                            isVisible: !currentVisibility
+                        });
+                        console.log(`Visibilidad del producto ${productId} cambiada a ${!currentVisibility}`);
+                    } catch (e) {
+                        console.error("Error al cambiar la visibilidad del producto:", e);
+                        alert(`Error al cambiar la visibilidad: ${e.message}`);
+                    }
+                } else {
+                    alert('No tienes permisos para realizar esta acción.');
+                }
+            };
+
+            const deleteProduct = async (id) => {
+                if (db && isLoggedInAsAdmin) {
+                    try {
+                        const productDocRef = window.doc(db, `artifacts/${appId}/public/data/products`, id);
+                        await window.deleteDoc(productDocRef);
+                        console.log("Producto eliminado con éxito:", id);
+                    } catch (e) {
+                        console.error("Error al eliminar documento de Firestore: ", e);
+                        alert(`Error al eliminar el producto: ${e.message}. Revisa la consola para más detalles y tus reglas de seguridad de Firestore.`);
+                    }
+                } else {
+                    alert('No tienes permisos para realizar esta acción.');
+                }
+            };
+
+            const exportDatabase = async () => {
+                if (db && isLoggedInAsAdmin) {
+                    try {
+                        const productsCollectionRef = window.collection(db, `artifacts/${appId}/public/data/products`);
+                        const querySnapshot = await window.getDocs(productsCollectionRef);
+                        const dataToExport = [];
+                        querySnapshot.forEach((doc) => {
+                            dataToExport.push({ id: doc.id, ...doc.data() });
+                        });
+                        const jsonString = JSON.stringify(dataToExport, null, 2);
+                        const blob = new Blob([jsonString], { type: 'application/json' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `productos_db_backup_${new Date().toISOString().slice(0,10)}.json`;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(url);
+                        alert('Base de datos de productos descargada con éxito.');
+                        console.log("Base de datos exportada:", dataToExport);
+                    } catch (e) {
+                        console.error("Error al exportar la base de datos:", e);
+                        alert(`Error al descargar la base de datos: ${e.message}. Revisa la consola.`);
+                    }
+                } else {
+                    alert('No tienes permisos de administrador para exportar la base de datos.');
+                }
+            };
+
+            const importDatabase = async (event) => {
+                if (db && isLoggedInAsAdmin) {
+                    const file = event.target.files[0];
+                    if (!file) {
+                        return;
+                    }
+                    const reader = new FileReader();
+                    reader.onload = async (e) => {
+                        try {
+                            const jsonContent = JSON.parse(e.target.result);
+                            if (!Array.isArray(jsonContent)) {
+                                alert('El archivo JSON no contiene un array de productos válido.');
+                                return;
+                            }
+                            const confirmImport = window.confirm(
+                                '¡ADVERTENCIA! Al importar la base de datos, los productos con IDs coincidentes se actualizarán, ' +
+                                'y los nuevos se añadirán. Los productos existentes que no estén en el archivo JSON se conservarán. ' +
+                                '¿Estás seguro de que quieres continuar?'
+                            );
+                            if (!confirmImport) {
+                                return;
+                            }
+                            const uploadPromises = [];
+                            for (const product of jsonContent) {
+                                const { id, ...data } = product;
+                                if (id) {
+                                    uploadPromises.push(window.setDoc(window.doc(db, `artifacts/${appId}/public/data/products`, id), data, { merge: true })
+                                        .catch(e => console.error(`Error al actualizar producto con ID ${id}:`, e)));
+                                } else {
+                                    uploadPromises.push(window.addDoc(window.collection(db, `artifacts/${appId}/public/data/products`), data)
+                                        .catch(e => console.error("Error al añadir producto sin ID:", e)));
+                                }
+                            }
+                            await Promise.all(uploadPromises);
+                            alert('Base de datos de productos subida y fusionada con éxito.');
+                            console.log("Base de datos importada y fusionada.");
+                        } catch (error) {
+                            console.error("Error al importar la base de datos:", error);
+                            alert(`Error al subir la base de datos: ${error.message}. Asegúrate de que el archivo es un JSON válido.`);
+                        }
+                    };
+                    reader.readAsText(file);
+                } else {
+                    alert('No tienes permisos de administrador para importar la base de datos.');
+                }
+            };
+
+            const addToCart = (product) => {
+                const quantity = productQuantities[product.id] || 1;
+                if (quantity <= 0) {
+                    alert('Por favor, selecciona una cantidad válida mayor a cero.');
+                    return;
+                }
+                
+                if (cart.length === 0 && !currentOrderId) {
+                    setCurrentOrderId(generateShortOrderId());
+                }
+
+                setCart(prevCart => {
+                    const existingItemIndex = prevCart.findIndex(item => item.id === product.id);
+                    if (existingItemIndex > -1) {
+                        const newCart = [...prevCart];
+                        newCart[existingItemIndex] = {
+                            ...newCart[existingItemIndex],
+                            quantity: newCart[existingItemIndex].quantity + quantity
+                        };
+                        return newCart;
+                    } else {
+                        return [...prevCart, { ...product, quantity }];
+                    }
+                });
+
+                setProductQuantities(prev => ({ ...prev, [product.id]: 1 }));
+                console.log(`Se añadieron ${quantity} unidades de ${product.name} al pedido.`);
+            };
+
+            const removeOneFromCart = (productId) => {
+                setCart(prevCart => {
+                    const existingItem = prevCart.find(item => item.id === productId);
+                    if (existingItem && existingItem.quantity > 1) {
+                        console.log("Cantidad de producto reducida en el carrito:", existingItem.name);
+                        return prevCart.map(item =>
+                            item.id === productId ? { ...item, quantity: item.quantity - 1 } : item
+                        );
+                    } else {
+                        console.log("Producto eliminado del carrito:", existingItem ? existingItem.name : productId);
+                        return prevCart.filter(item => item.id !== productId);
+                    }
+                });
+            };
+
+            const removeProductCompletely = (productId) => {
+                setCart(prevCart => {
+                    const existingItem = prevCart.find(item => item.id === productId);
+                    if (existingItem) {
+                        console.log("Producto eliminado completamente del carrito:", existingItem.name);
+                    }
+                    return prevCart.filter(item => item.id !== productId);
+                });
+            };
+
+            const updateProductQuantity = (productId, newQuantity) => {
+                if (newQuantity < 1) newQuantity = 1;
+                setProductQuantities(prev => ({
+                    ...prev,
+                    [productId]: newQuantity
+                }));
+            };
+
+            const calculateCartTotal = () => {
+                return cart.reduce((total, item) => total + (item.price * item.quantity), 0);
+            };
+
+            const sendOrderToWhatsApp = () => {
+                if (cart.length === 0) {
+                    alert('Tu carrito está vacío. Por favor, añade algunos productos antes de ordenar.');
+                    return;
+                }
+                let message = `¡Hola! Me gustaría hacer un pedido:\n\n`;
+                cart.forEach((item, index) => {
+                    message += `${index + 1}. ${item.name} - Cantidad: ${item.quantity} - $${(item.price * item.quantity).toFixed(2)}\n`;
+                });
+                message += `\nTotal: $${calculateCartTotal().toFixed(2)}`;
+                message += `\n\nID de Pedido: ${currentOrderId || 'N/A'}`;
+                const whatsappUrl = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(message)}`;
+                window.open(whatsappUrl, '_blank');
+                setCart([]);
+                setCurrentOrderId(null);
+                console.log("Pedido enviado a WhatsApp y carrito vaciado.");
+            };
+
+            return (
+                <div className="min-h-screen bg-[#E0E7E9] p-4 font-sans flex items-center justify-center">
+                    <div className="bg-white p-6 rounded-xl shadow-2xl w-full max-w-4xl relative">
+                        <h1 className="text-4xl font-extrabold text-center text-[#071F2C] mb-8">
+                            ProLub Álava
+                        </h1>
+
+                        {!isLoggedInAsAdmin && (
+                            <button
+                                onClick={() => setShowAdminLoginModal(true)}
+                                className="absolute top-4 right-4 p-3 bg-gray-200 text-gray-700 rounded-full shadow-md hover:bg-gray-300 transition duration-200 z-50"
+                                title="Panel de Administración"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.3-.83-2.826.73-1.945 2.027a1.532 1.532 0 01-.58 2.246c-1.56.38-1.56 2.6 0 2.98a1.532 1.532 0 01.58 2.246c-.83 1.3.73 2.826 2.027 1.945a1.532 1.532 0 012.246.58c.38 1.56 2.6 1.56 2.98 0a1.532 1.532 0 012.286-.948c1.3.83 2.826-.73 1.945-2.027a1.532 1.532 0 01.58-2.246c1.56-.38 1.56-2.6 0-2.98a1.532 1.532 0 01-.58-2.246c.83-1.3-.73-2.826-2.027-1.945a1.532 1.532 0 01-2.246-.58zM10 11a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+                                </svg>
+                            </button>
+                        )}
+                        {userId && (
+                            <div className="text-center text-sm text-gray-600 mb-4 p-2 bg-gray-100 rounded-lg">
+                                <p>ID de Usuario (interno): <span className="font-mono text-[#071F2C] break-words">{userId}</span></p>
+                            </div>
+                        )}
+                        {showAdminLoginModal && !isLoggedInAsAdmin && (
+                            <div className="modal-overlay">
+                                <div className="modal-content">
+                                    <button className="modal-close-button" onClick={() => setShowAdminLoginModal(false)}>
+                                        &times;
+                                    </button>
+                                    <h2 className="text-2xl font-bold text-[#071F2C] mb-4 text-center">Ingresar como Administrador</h2>
+                                    <input
+                                        type="password"
+                                        placeholder="Contraseña de Administrador"
+                                        className="p-3 border border-gray-400 rounded-lg focus:ring-2 focus:ring-[#0A2633] focus:border-transparent transition duration-200 w-full mb-4"
+                                        value={adminPasswordInput}
+                                        onChange={(e) => setAdminPasswordInput(e.target.value)}
+                                        onKeyPress={(e) => { if (e.key === 'Enter') handleAdminLogin(); }}
+                                    />
+                                    <button
+                                        onClick={handleAdminLogin}
+                                        className="w-full bg-[#071F2C] hover:bg-[#0A2633] text-white font-bold py-3 px-6 rounded-lg shadow-md transition duration-300 transform hover:scale-105"
+                                    >
+                                        Ingresar
+                                    </button>
+                                    {adminLoginError && (
+                                        <p className="text-red-500 mt-2 text-center">{adminLoginError}</p>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
+                        {isLoggedInAsAdmin ? (
+                            <div className="admin-panel">
+                                <div className="flex justify-between items-center mb-4">
+                                    <h2 className="text-2xl font-bold text-[#071F2C]">Panel de Administración</h2>
+                                    <button
+                                        onClick={handleAdminLogout}
+                                        className="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-300"
+                                    >
+                                        Cerrar Sesión (Admin)
+                                    </button>
+                                </div>
+                                <div className="mb-8 p-6 bg-gray-100 rounded-lg shadow-inner">
+                                    <h3 className="text-2xl font-bold text-[#071F2C] mb-4">
+                                        {editingProduct ? 'Editar Producto' : 'Añadir Nuevo Producto'}
+                                    </h3>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                                        <input
+                                            type="text"
+                                            placeholder="Nombre del Producto"
+                                            className="p-3 border border-gray-400 rounded-lg focus:ring-2 focus:ring-[#0A2633] focus:border-transparent transition duration-200"
+                                            value={productName}
+                                            onChange={(e) => setProductName(e.target.value)}
+                                        />
+                                        <input
+                                            type="text"
+                                            placeholder="Descripción del Producto"
+                                            className="p-3 border border-gray-400 rounded-lg focus:ring-2 focus:ring-[#0A2633] focus:border-transparent transition duration-200"
+                                            value={productDescription}
+                                            onChange={(e) => setProductDescription(e.target.value)}
+                                        />
+                                        <input
+                                            type="number"
+                                            placeholder="Precio"
+                                            className="p-3 border border-gray-400 rounded-lg focus:ring-2 focus:ring-[#0A2633] focus:border-transparent transition duration-200"
+                                            value={productPrice}
+                                            onChange={(e) => setProductPrice(e.target.value)}
+                                        />
+                                        <input
+                                            type="text"
+                                            placeholder="URL de la Imagen"
+                                            className="p-3 border border-gray-400 rounded-lg focus:ring-2 focus:ring-[#0A2633] focus:border-transparent transition duration-200"
+                                            value={productImageUrl}
+                                            onChange={(e) => setProductImageUrl(e.target.value)}
+                                        />
+                                    </div>
+                                    {editingProduct && (
+                                        <div className="flex items-center justify-center mb-4">
+                                            <label htmlFor="product-visibility" className="mr-3 text-[#071F2C] font-semibold">
+                                                Visible en el Catálogo:
+                                            </label>
+                                            <input
+                                                type="checkbox"
+                                                id="product-visibility"
+                                                className="form-checkbox h-5 w-5 text-[#071F2C] rounded-md focus:ring-[#0A2633]"
+                                                checked={productIsVisible}
+                                                onChange={(e) => setProductIsVisible(e.target.checked)}
+                                            />
+                                        </div>
+                                    )}
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={addOrUpdateProduct}
+                                            className="w-full bg-[#071F2C] hover:bg-[#0A2633] text-white font-bold py-3 px-6 rounded-lg shadow-md transition duration-300 transform hover:scale-105"
+                                        >
+                                            {editingProduct ? 'Actualizar Producto' : 'Añadir Producto'}
+                                        </button>
+                                        {editingProduct && (
+                                            <button
+                                                onClick={() => {
+                                                    setEditingProduct(null);
+                                                    setProductName('');
+                                                    setProductDescription('');
+                                                    setProductPrice('');
+                                                    setProductImageUrl('');
+                                                    setProductIsVisible(true);
+                                                }}
+                                                className="w-full bg-gray-500 hover:bg-gray-600 text-white font-bold py-3 px-6 rounded-lg shadow-md transition duration-300 transform hover:scale-105"
+                                            >
+                                                Cancelar Edición
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                                <div className="mb-8 p-6 bg-gray-100 rounded-lg shadow-inner">
+                                    <h3 className="text-2xl font-bold text-[#071F2C] mb-4">Gestión de Base de Datos</h3>
+                                    <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
+                                        <button
+                                            onClick={exportDatabase}
+                                            className="w-full sm:w-auto bg-[#0A2633] hover:bg-[#071F2C] text-white font-bold py-3 px-6 rounded-lg shadow-md transition duration-300 transform hover:scale-105"
+                                        >
+                                            Descargar Base de Datos
+                                        </button>
+                                        <label className="w-full sm:w-auto bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-6 rounded-lg shadow-md transition duration-300 transform hover:scale-105 cursor-pointer text-center">
+                                            Subir Base de Datos
+                                            <input
+                                                type="file"
+                                                accept=".json"
+                                                onChange={importDatabase}
+                                                className="hidden"
+                                            />
+                                        </label>
+                                    </div>
+                                </div>
+                                <h2 className="text-2xl font-bold text-[#071F2C] mb-4">Catálogo de Productos</h2>
+                                {products.length === 0 ? (
+                                    <p className="text-center text-gray-500">No hay productos registrados. ¡Añade algunos!</p>
+                                ) : (
+                                    <ul className="space-y-4">
+                                        {products.map((product) => (
+                                            <li
+                                                key={product.id}
+                                                className="flex flex-col sm:flex-row items-center bg-white p-4 rounded-lg shadow-md border border-gray-200"
+                                            >
+                                                <img
+                                                    src={product.imageUrl}
+                                                    alt={product.name}
+                                                    className="w-24 h-24 object-cover rounded-lg mr-4 mb-4 sm:mb-0"
+                                                    onError={(e) => { e.target.onerror = null; e.target.src = "https://placehold.co/96x96/D9E2E4/071F2C?text=ProLub"; }}
+                                                />
+                                                <div className="flex-grow text-center sm:text-left">
+                                                    <p className="text-lg font-semibold text-gray-800">{product.name}</p>
+                                                    <p className="text-sm text-gray-600">{product.description}</p>
+                                                    <p className="text-md font-bold text-[#071F2C]">${product.price.toFixed(2)}</p>
+                                                </div>
+                                                <div className="flex flex-col space-y-2 mt-4 sm:mt-0 sm:ml-4">
+                                                    <label className="inline-flex items-center cursor-pointer">
+                                                        <input
+                                                            type="checkbox"
+                                                            className="sr-only peer"
+                                                            checked={product.isVisible}
+                                                            onChange={() => toggleProductVisibility(product.id, product.isVisible)}
+                                                        />
+                                                        <div className="relative w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-[#0A2633] rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#071F2C]"></div>
+                                                        <span className="ml-3 text-sm font-medium text-gray-900">
+                                                            {product.isVisible ? 'Visible' : 'Oculto'}
+                                                        </span>
+                                                    </label>
+                                                    <div className="flex space-x-2">
+                                                        <button
+                                                            onClick={() => startEditProduct(product)}
+                                                            className="p-2 rounded-full bg-blue-500 text-white hover:bg-blue-600 transition duration-200"
+                                                            title="Editar"
+                                                        >
+                                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                                                <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                                                            </svg>
+                                                        </button>
+                                                        <button
+                                                            onClick={() => deleteProduct(product.id)}
+                                                            className="p-2 rounded-full bg-red-500 text-white hover:bg-red-600 transition duration-200"
+                                                            title="Eliminar"
+                                                        >
+                                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                                                <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                                                            </svg>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                )}
+                            </div>
+                        ) : (
+                            <div className="client-view">
+                                <h2 className="text-2xl font-bold text-[#071F2C] mb-4">Nuestro Catálogo</h2>
+                                {products.filter(product => product.isVisible).length === 0 ? (
+                                    <p className="text-center text-gray-500">No hay productos disponibles en este momento.</p>
+                                ) : (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+                                        {products.filter(product => product.isVisible).map((product) => (
+                                            <div
+                                                key={product.id}
+                                                className="bg-white p-4 rounded-lg shadow-md border border-gray-200 flex flex-col items-center text-center"
+                                            >
+                                                <img
+                                                    src={product.imageUrl}
+                                                    alt={product.name}
+                                                    className="w-32 h-32 object-cover rounded-lg mb-4"
+                                                    onError={(e) => { e.target.onerror = null; e.target.src = "https://placehold.co/128x128/D9E2E4/071F2C?text=ProLub"; }}
+                                                />
+                                                <h3 className="text-xl font-semibold text-gray-800 mb-1">{product.name}</h3>
+                                                <p className="text-sm text-gray-600 mb-2 flex-grow">{product.description}</p>
+                                                <p className="text-lg font-bold text-[#071F2C] mb-4">${product.price.toFixed(2)}</p>
+                                                <div className="flex items-stretch space-x-2 w-full mb-4">
+                                                    <button
+                                                        onClick={() => updateProductQuantity(product.id, (productQuantities[product.id] || 1) - 1)}
+                                                        className="bg-gray-200 text-gray-700 px-3 py-1 rounded-lg hover:bg-gray-300 transition duration-200"
+                                                    >
+                                                        -
+                                                    </button>
+                                                    <input
+                                                        type="number"
+                                                        value={productQuantities[product.id] || 1}
+                                                        onChange={(e) => updateProductQuantity(product.id, parseInt(e.target.value))}
+                                                        className="w-full text-center border rounded-lg p-1 text-lg"
+                                                        min="1"
+                                                    />
+                                                    <button
+                                                        onClick={() => updateProductQuantity(product.id, (productQuantities[product.id] || 1) + 1)}
+                                                        className="bg-gray-200 text-gray-700 px-3 py-1 rounded-lg hover:bg-gray-300 transition duration-200"
+                                                    >
+                                                        +
+                                                    </button>
+                                                </div>
+                                                <button
+                                                    onClick={() => addToCart(product)}
+                                                    className="w-full bg-[#071F2C] hover:bg-[#0A2633] text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-300 transform hover:scale-105"
+                                                >
+                                                    Añadir al Pedido
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                                <div className="cart-summary p-6 bg-[#D9E2E4] rounded-lg shadow-inner mt-8">
+                                    <h2 className="text-2xl font-bold text-[#071F2C] mb-4">Tu Pedido</h2>
+                                    {cart.length === 0 ? (
+                                        <p className="text-center text-gray-500">El pedido está vacío.</p>
+                                    ) : (
+                                        <>
+                                            {currentOrderId && (
+                                                <p className="text-center text-lg font-semibold text-[#071F2C] mb-2">
+                                                    ID de Pedido: <span className="font-mono">{currentOrderId}</span>
+                                                </p>
+                                            )}
+                                            <ul className="space-y-2 mb-4">
+                                                {cart.map(item => (
+                                                    <li key={item.id} className="flex justify-between items-center bg-white p-3 rounded-lg shadow-sm">
+                                                        <div className="flex-grow">
+                                                            <span className="font-semibold text-gray-800">
+                                                                {item.name} - Cantidad: {item.quantity}
+                                                            </span>
+                                                        </div>
+                                                        <div className="flex items-center space-x-2">
+                                                            <span className="font-bold text-[#071F2C]">${(item.price * item.quantity).toFixed(2)}</span>
+                                                            <div className="flex items-center space-x-1 ml-2">
+                                                                <button
+                                                                    onClick={() => removeOneFromCart(item.id)}
+                                                                    className="p-1 rounded-full bg-gray-400 text-white hover:bg-gray-500 transition duration-200 text-xs"
+                                                                    title="Quitar uno"
+                                                                >
+                                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                                                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM7 9a1 1 0 000 2h6a1 1 0 100-2H7z" clipRule="evenodd" />
+                                                                    </svg>
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => removeProductCompletely(item.id)}
+                                                                    className="p-1 rounded-full bg-red-500 text-white hover:bg-red-600 transition duration-200 text-xs"
+                                                                    title="Eliminar producto"
+                                                                >
+                                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                                                        <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                                                                    </svg>
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                            <div className="text-right text-2xl font-bold text-[#071F2C] mb-4">
+                                                Total del Pedido: ${calculateCartTotal().toFixed(2)}
+                                            </div>
+                                            <button
+                                                onClick={sendOrderToWhatsApp}
+                                                className="w-full bg-[#25D366] hover:bg-[#128C7E] text-white font-bold py-3 px-6 rounded-lg shadow-md transition duration-300 transform hover:scale-105 flex items-center justify-center space-x-2"
+                                            >
+                                                <img
+                                                    src="https://uploads.onecompiler.io/43hc5xg2u/43rnpuwss/Dise%C3%B1o%20sin%20t%C3%ADtulo.png"
+                                                    alt="Logo de WhatsApp"
+                                                    className="h-6 w-6 mr-2 object-contain"
+                                                    onError={(e) => { e.target.onerror = null; e.target.src = "https://placehold.co/24x24/FFFFFF/25D366?text=WA"; }}
+                                                />
+                                                Enviar Pedido por WhatsApp
+                                            </button>
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(React.createElement(App));
+    </script>
+</body>
+</html>
